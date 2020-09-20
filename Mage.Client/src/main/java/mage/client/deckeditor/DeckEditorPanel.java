@@ -26,6 +26,7 @@ import mage.util.DeckUtil;
 import mage.view.CardView;
 import mage.view.SimpleCardView;
 import org.apache.log4j.Logger;
+import org.mage.plugins.card.images.DownloadPicturesService;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -41,6 +42,7 @@ import java.util.concurrent.*;
 
 import static mage.cards.decks.DeckFormats.XMAGE;
 import static mage.cards.decks.DeckFormats.XMAGE_INFO;
+import javax.swing.GroupLayout.Alignment;
 
 /**
  * @author BetaSteward_at_googlemail.com, JayDi85, Elandril
@@ -919,6 +921,7 @@ public class DeckEditorPanel extends javax.swing.JPanel {
         panelInfo = new javax.swing.JPanel();
         deckLegalityDisplay = new mage.client.deckeditor.DeckLegalityPanel();
         bigCard = new mage.client.cards.BigCard();
+        panelDownloadImage = new javax.swing.JPanel();
 
         panelRight.setDividerSize(10);
         panelRight.setOrientation(javax.swing.JSplitPane.VERTICAL_SPLIT);
@@ -929,7 +932,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
         panelRight.setBottomComponent(deckArea);
 
         panelDeck.setOpaque(false);
-        panelDeck.setLayout(new javax.swing.BoxLayout(panelDeck, javax.swing.BoxLayout.Y_AXIS));
 
         panelDeckName.setOpaque(false);
 
@@ -956,8 +958,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                         .addComponent(lblDeckName))
                                 .addGap(0, 0, 0))
         );
-
-        panelDeck.add(panelDeckName);
 
         panelDeckCreate.setOpaque(false);
 
@@ -1000,8 +1000,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                         .addComponent(btnNew, javax.swing.GroupLayout.DEFAULT_SIZE, 30, Short.MAX_VALUE)))
         );
 
-        panelDeck.add(panelDeckCreate);
-
         panelDeckLoad.setOpaque(false);
 
         btnLoad.setIcon(new javax.swing.ImageIcon(getClass().getResource("/buttons/search_24.png"))); // NOI18N
@@ -1043,8 +1041,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                         .addComponent(btnImport, javax.swing.GroupLayout.DEFAULT_SIZE, 30, Short.MAX_VALUE)))
         );
 
-        panelDeck.add(panelDeckLoad);
-
         panelDeckSave.setOpaque(false);
 
         btnSave.setIcon(new javax.swing.ImageIcon(getClass().getResource("/buttons/sideboard_out.png"))); // NOI18N
@@ -1085,8 +1081,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                         .addComponent(btnSave, javax.swing.GroupLayout.DEFAULT_SIZE, 30, Short.MAX_VALUE)
                                         .addComponent(btnExport, javax.swing.GroupLayout.DEFAULT_SIZE, 30, Short.MAX_VALUE)))
         );
-
-        panelDeck.add(panelDeckSave);
 
         panelDeckDraft.setOpaque(false);
 
@@ -1134,8 +1128,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                 .addGap(0, 0, 0))
         );
 
-        panelDeck.add(panelDeckDraft);
-
         panelDeckLands.setOpaque(false);
 
         btnAddLand.setIcon(new javax.swing.ImageIcon(getClass().getResource("/buttons/type_land.png"))); // NOI18N
@@ -1177,8 +1169,44 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                         .addComponent(btnLegality, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                                 .addGap(0, 0, 0))
         );
+        
+        panelDownloadImage.setOpaque(false);
+        
+        panelDeck.add(panelDownloadImage);
+        
+        btnDownloadImage = new JButton("Download Image");
+        btnDownloadImage.addActionListener(new ActionListener() {
+        	public void actionPerformed(ActionEvent evt) {
 
-        panelDeck.add(panelDeckLands);
+        		Boolean redownloadMode = false;
+        		DeckCardLists cardLists = deck.getDeckCardLists();
+        		List<DeckCardInfo> cards = cardLists.getCards();
+        		
+        		DownloadPicturesService downloadService = new DownloadPicturesService(MageFrame.getInstance());
+        		downloadService.setMissingCardsManually(cards);
+        		
+        		//
+        		// TODO, Deckarea refresh ?
+        		//
+        	}
+        });
+        
+        javax.swing.GroupLayout panelDownloadImageLayout = new javax.swing.GroupLayout(panelDownloadImage);
+        panelDownloadImageLayout.setHorizontalGroup(
+        	panelDownloadImageLayout.createParallelGroup(Alignment.LEADING)
+        		.addGroup(panelDownloadImageLayout.createSequentialGroup()
+        			.addContainerGap()
+        			.addComponent(btnDownloadImage, GroupLayout.PREFERRED_SIZE, 205, GroupLayout.PREFERRED_SIZE)
+        			.addContainerGap(107, Short.MAX_VALUE))
+        );
+        panelDownloadImageLayout.setVerticalGroup(
+        	panelDownloadImageLayout.createParallelGroup(Alignment.TRAILING)
+        		.addGroup(Alignment.LEADING, panelDownloadImageLayout.createSequentialGroup()
+        			.addContainerGap()
+        			.addComponent(btnDownloadImage, GroupLayout.DEFAULT_SIZE, GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+        			.addContainerGap())
+        );
+        panelDownloadImage.setLayout(panelDownloadImageLayout);
 
         panelDeckExit.setOpaque(false);
 
@@ -1195,28 +1223,6 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                 txtTimeRemainingActionPerformed(evt);
             }
         });
-
-        javax.swing.GroupLayout panelDeckExitLayout = new javax.swing.GroupLayout(panelDeckExit);
-        panelDeckExit.setLayout(panelDeckExitLayout);
-        panelDeckExitLayout.setHorizontalGroup(
-                panelDeckExitLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                        .addGroup(panelDeckExitLayout.createSequentialGroup()
-                                .addContainerGap()
-                                .addComponent(btnExit, javax.swing.GroupLayout.PREFERRED_SIZE, 100, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(txtTimeRemaining, javax.swing.GroupLayout.PREFERRED_SIZE, 100, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addContainerGap(70, Short.MAX_VALUE))
-        );
-        panelDeckExitLayout.setVerticalGroup(
-                panelDeckExitLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                        .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, panelDeckExitLayout.createSequentialGroup()
-                                .addGap(0, 11, Short.MAX_VALUE)
-                                .addGroup(panelDeckExitLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                                        .addComponent(btnExit, javax.swing.GroupLayout.PREFERRED_SIZE, 30, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                        .addComponent(txtTimeRemaining, javax.swing.GroupLayout.PREFERRED_SIZE, 30, javax.swing.GroupLayout.PREFERRED_SIZE)))
-        );
-
-        panelDeck.add(panelDeckExit);
 
         scrollPaneInfo.setBorder(null);
         scrollPaneInfo.setHorizontalScrollBarPolicy(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
@@ -1270,6 +1276,50 @@ public class DeckEditorPanel extends javax.swing.JPanel {
                                 .addComponent(scrollPaneInfo)
                                 .addContainerGap())
         );
+        GroupLayout gl_panelDeck = new GroupLayout(panelDeck);
+        gl_panelDeck.setHorizontalGroup(
+        	gl_panelDeck.createParallelGroup(Alignment.LEADING)
+        		.addComponent(panelDeckName, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckCreate, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckLoad, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckSave, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckDraft, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckLands, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDownloadImage, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        		.addComponent(panelDeckExit, GroupLayout.PREFERRED_SIZE, 324, GroupLayout.PREFERRED_SIZE)
+        );
+        gl_panelDeck.setVerticalGroup(
+        	gl_panelDeck.createParallelGroup(Alignment.LEADING)
+        		.addGroup(gl_panelDeck.createSequentialGroup()
+        			.addComponent(panelDeckName, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckCreate, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckLoad, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckSave, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckDraft, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckLands, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDownloadImage, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
+        			.addComponent(panelDeckExit, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE))
+        );
+        GroupLayout gl_panelDeckExit = new GroupLayout(panelDeckExit);
+        gl_panelDeckExit.setHorizontalGroup(
+        	gl_panelDeckExit.createParallelGroup(Alignment.LEADING)
+        		.addGroup(gl_panelDeckExit.createSequentialGroup()
+        			.addGap(12)
+        			.addComponent(btnExit, GroupLayout.PREFERRED_SIZE, 100, GroupLayout.PREFERRED_SIZE)
+        			.addGap(6)
+        			.addComponent(txtTimeRemaining, GroupLayout.PREFERRED_SIZE, 100, GroupLayout.PREFERRED_SIZE))
+        );
+        gl_panelDeckExit.setVerticalGroup(
+        	gl_panelDeckExit.createParallelGroup(Alignment.LEADING)
+        		.addGroup(gl_panelDeckExit.createSequentialGroup()
+        			.addGap(11)
+        			.addComponent(btnExit, GroupLayout.PREFERRED_SIZE, 30, GroupLayout.PREFERRED_SIZE))
+        		.addGroup(gl_panelDeckExit.createSequentialGroup()
+        			.addGap(12)
+        			.addComponent(txtTimeRemaining, GroupLayout.PREFERRED_SIZE, 30, GroupLayout.PREFERRED_SIZE))
+        );
+        panelDeckExit.setLayout(gl_panelDeckExit);
+        panelDeck.setLayout(gl_panelDeck);
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(this);
         this.setLayout(layout);
@@ -1510,13 +1560,14 @@ public class DeckEditorPanel extends javax.swing.JPanel {
     private javax.swing.JPanel panelDeckLoad;
     private javax.swing.JPanel panelDeckName;
     private javax.swing.JPanel panelDeckSave;
+    private javax.swing.JPanel panelDownloadImage;
     private javax.swing.JPanel panelInfo;
     private javax.swing.JPanel panelLeft;
     private javax.swing.JSplitPane panelRight;
     private javax.swing.JScrollPane scrollPaneInfo;
     private javax.swing.JTextField txtDeckName;
     private javax.swing.JTextField txtTimeRemaining;
-    // End of variables declaration//GEN-END:variables
+    private JButton btnDownloadImage;
 }
 
 class ImportFilter extends FileFilter {

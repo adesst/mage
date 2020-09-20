@@ -2,6 +2,7 @@ package org.mage.plugins.card.images;
 
 import mage.cards.ExpansionSet;
 import mage.cards.Sets;
+import mage.cards.decks.DeckCardInfo;
 import mage.cards.repository.CardCriteria;
 import mage.cards.repository.CardInfo;
 import mage.cards.repository.CardRepository;
@@ -227,6 +228,29 @@ public class DownloadPicturesService extends DefaultBoundedRangeModel implements
         this.uiDialog.showDownloadControls(true);
         updateMessage("");
         showDownloadControls(true);
+    }
+    
+    public void setMissingCardsManually(List<DeckCardInfo> cards) {
+    	CardInfo tmpCard;
+    	boolean redownloadMode = false;
+    	this.cardsAll.clear();
+    	
+    	for( DeckCardInfo card: cards) {
+    		tmpCard = CardRepository.instance.findCard(card.getSetCode(), card.getCardNum());
+    		this.cardsAll.add(tmpCard);
+    	}
+    	
+    	List<CardDownloadData> cardsToDownload = this.prepareMissingCardsManually(cardsAll, redownloadMode);
+    	
+        cardsDownloadQueue.clear();
+        
+        for( CardDownloadData card: cardsToDownload ) {
+        	cardsDownloadQueue.add(card);
+        }
+        
+    	this.runManually();
+    	
+        JOptionPane.showMessageDialog(null, "Download complete");
     }
 
     private void reloadLanguagesForSelectedSource() {
@@ -486,7 +510,83 @@ public class DownloadPicturesService extends DefaultBoundedRangeModel implements
 
         return Collections.synchronizedList(new ArrayList<>(cardsToDownload));
     }
+    
+    private static List<CardDownloadData> prepareMissingCardsManually(List<CardInfo> allCards, boolean redownloadMode) {
 
+        // get filter for Standard Type 2 cards
+        Set<String> type2SetsFilter = new HashSet<>();
+
+        // prepare checking list
+        List<CardDownloadData> allCardsUrls = Collections.synchronizedList(new ArrayList<>());
+        try {
+            allCards.parallelStream().forEach(card -> {
+                if (!card.getCardNumber().isEmpty() && !"0".equals(card.getCardNumber()) && !card.getSetCode().isEmpty()) {
+                    String cardName = card.getName();
+                    boolean isType2 = type2SetsFilter.contains(card.getSetCode());
+                    CardDownloadData url = new CardDownloadData(cardName, card.getSetCode(), card.getCardNumber(), card.usesVariousArt(), 0, "", "", false, card.isDoubleFaced(), card.isNightCard());
+                    if (url.getUsesVariousArt()) {
+                        url.setDownloadName(createDownloadName(card));
+                    }
+
+                    url.setFlipCard(card.isFlipCard());
+                    url.setSplitCard(card.isSplitCard());
+                    url.setType2(isType2);
+
+                    allCardsUrls.add(url);
+                    if (card.isDoubleFaced()) {
+                        if (card.getSecondSideName() == null || card.getSecondSideName().trim().isEmpty()) {
+                            throw new IllegalStateException("Second side card can't have empty name.");
+                        }
+
+                        CardInfo secondSideCard = CardRepository.instance.findCardWPreferredSet(card.getSecondSideName(), card.getSetCode(), false);
+                        if (secondSideCard == null) {
+                            throw new IllegalStateException("Can''t find second side card in database: " + card.getSecondSideName());
+                        }
+
+                        url = new CardDownloadData(card.getSecondSideName(), card.getSetCode(), secondSideCard.getCardNumber(), card.usesVariousArt(), 0, "", "", false, card.isDoubleFaced(), true);
+                        url.setType2(isType2);
+                        allCardsUrls.add(url);
+                    }
+                    if (card.isFlipCard()) {
+                        if (card.getFlipCardName() == null || card.getFlipCardName().trim().isEmpty()) {
+                            throw new IllegalStateException("Flipped card can't have empty name.");
+                        }
+                        CardDownloadData cardDownloadData = new CardDownloadData(card.getFlipCardName(), card.getSetCode(), card.getCardNumber(), card.usesVariousArt(), 0, "", "", false, card.isDoubleFaced(), card.isNightCard());
+                        cardDownloadData.setFlipCard(true);
+                        cardDownloadData.setFlippedSide(true);
+                        cardDownloadData.setType2(isType2);
+                        allCardsUrls.add(cardDownloadData);
+                    }
+                } else if (card.getCardNumber().isEmpty() || "0".equals(card.getCardNumber())) {
+                    logger.error("Card has no collector ID and won't be sent to client: " + card.getName());
+                } else if (card.getSetCode().isEmpty()) {
+                    logger.error("Card has no set name and won't be sent to client:" + card.getName());
+                } else {
+                    logger.info("Card was not selected: " + card.getName());
+                }
+            });
+        } catch (Exception e) {
+            logger.error(e);
+        }
+
+        // find missing files
+        List<CardDownloadData> cardsToDownload = Collections.synchronizedList(new ArrayList<>());
+        allCardsUrls.parallelStream().forEach(card -> {
+            if (redownloadMode) {
+                // need all cards
+                cardsToDownload.add(card);
+            } else {
+                // need missing cards
+                File file = new TFile(CardImageUtils.buildImagePathToCard(card));
+                if (!file.exists()) {
+                    cardsToDownload.add(card);
+                }
+            }
+        });
+
+        return Collections.synchronizedList(new ArrayList<>(cardsToDownload));
+    }
+    
     public static List<CardDownloadData> getTokenCardUrls() throws RuntimeException {
         List<CardDownloadData> list = new ArrayList<>();
         InputStream in = DownloadPicturesService.class.getClassLoader().getResourceAsStream("card-pictures-tok.txt");
@@ -685,10 +785,314 @@ public class DownloadPicturesService extends DefaultBoundedRangeModel implements
         // reset images cache
         ImageCache.clearCache();
     }
+    
+    public void runManually() {
+        this.cardIndex = 0;
+        this.resetErrorCount();
+
+        File base = new File(getImagesDir());
+        if (!base.exists()) {
+            base.mkdir();
+        }
+
+        Connection.ProxyType configProxyType = Connection.ProxyType.valueByText(PreferencesDialog.getCachedValue(PreferencesDialog.KEY_PROXY_TYPE, "None"));
+        Proxy.Type type = Proxy.Type.DIRECT;
+        switch (configProxyType) {
+            case HTTP:
+                type = Proxy.Type.HTTP;
+                break;
+            case SOCKS:
+                type = Proxy.Type.SOCKS;
+                break;
+            case NONE:
+            default:
+                proxy = Proxy.NO_PROXY;
+                break;
+        }
+
+        if (type != Proxy.Type.DIRECT) {
+            try {
+                String address = PreferencesDialog.getCachedValue(PreferencesDialog.KEY_PROXY_ADDRESS, "");
+                Integer port = Integer.parseInt(PreferencesDialog.getCachedValue(PreferencesDialog.KEY_PROXY_PORT, "80"));
+                proxy = new Proxy(type, new InetSocketAddress(address, port));
+            } catch (Exception ex) {
+                throw new RuntimeException("Gui_DownloadPicturesService : error 1 - " + ex);
+            }
+        }
+
+        int downloadThreadsAmount = Integer.parseInt((String) uiDialog.getDownloadThreadsCombo().getSelectedItem());
+
+        if (proxy != null) {
+            logger.info("Started download of " + cardsDownloadQueue.size() + " images"
+                    + " from source: " + selectedSource.getSourceName()
+                    + ", language: " + selectedSource.getCurrentLanguage().getCode()
+                    + ", threads: " + downloadThreadsAmount);
+            uiDialog.getProgressBar().setString("Preparing download list...");
+            if (selectedSource.prepareDownloadList(this, cardsDownloadQueue)) {
+                update(0, cardsDownloadQueue.size());
+                ExecutorService executor = Executors.newFixedThreadPool(downloadThreadsAmount);
+                for (int i = 0; i < cardsDownloadQueue.size() && !this.isNeedCancel(); i++) {
+                    try {
+                        CardDownloadData card = cardsDownloadQueue.get(i);
+
+                        logger.debug("Downloading image: " + card.getName() + " (" + card.getSet() + ')');
+
+                        CardImageUrls urls;
+                        if (card.isToken()) {
+                            if (!"0".equals(card.getCollectorId())) {
+                                continue;
+                            }
+                            urls = selectedSource.generateTokenUrl(card);
+                        } else {
+                            urls = selectedSource.generateCardUrl(card);
+                        }
+
+                        if (urls == null) {
+                            String imageRef = selectedSource.getNextHttpImageUrl();
+                            String fileName = selectedSource.getFileForHttpImage(imageRef);
+                            if (imageRef != null && fileName != null) {
+                                imageRef = selectedSource.getSourceName() + imageRef;
+                                try {
+                                    card.setToken(selectedSource.isTokenSource());
+                                    Runnable task = new DownloadTaskV2(card, imageRef, fileName, selectedSource.getTotalImages());
+                                    executor.execute(task);
+                                } catch (Exception ex) {
+                                }
+                            } else if (selectedSource.getTotalImages() == -1) {
+                                logger.info("Image not available on " + selectedSource.getSourceName() + ": " + card.getName() + " (" + card.getSet() + ')');
+                                synchronized (sync) {
+                                    update(cardIndex + 1, cardsDownloadQueue.size());
+                                }
+                            }
+                        } else {
+                            Runnable task = new DownloadTaskV2(card, urls, cardsDownloadQueue.size());
+                            executor.execute(task);
+                        }
+                    } catch (Exception ex) {
+                        logger.error(ex, ex);
+                    }
+                }
+
+                executor.shutdown();
+                while (!executor.isTerminated()) {
+                    try {
+                        TimeUnit.SECONDS.sleep(1);
+                    } catch (InterruptedException ie) {
+                    }
+                }
+            }
+        }
+
+        try {
+            TVFS.umount();
+        } catch (FsSyncException e) {
+            logger.fatal("Couldn't unmount zip files", e);
+            JOptionPane.showMessageDialog(null, "Couldn't unmount zip files", "Error", JOptionPane.ERROR_MESSAGE);
+        } finally {
+            //
+        }
+
+        // stop
+        reloadCardsToDownload(uiDialog.getSetsCombo().getSelectedItem().toString());
+        enableDialogButtons();
+
+        // reset images cache
+        ImageCache.clearCache();
+    }
 
     static String convertStreamToString(InputStream is) {
         java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
         return s.hasNext() ? s.next() : "";
+    }
+
+    private final class DownloadTaskV2 implements Runnable {
+
+        private final CardDownloadData card;
+        private final CardImageUrls urls;
+        private final int count;
+        private final String actualFilename;
+        private final boolean useSpecifiedPaths;
+
+        DownloadTaskV2(CardDownloadData card, CardImageUrls urls, int count) {
+            this.card = card;
+            this.urls = urls;
+            this.count = count;
+            this.actualFilename = "";
+            useSpecifiedPaths = false;
+        }
+
+        DownloadTaskV2(CardDownloadData card, String baseUrl, String actualFilename, int count) {
+            this.card = card;
+            this.urls = new CardImageUrls(baseUrl, null);
+            this.count = count;
+            this.actualFilename = actualFilename;
+            useSpecifiedPaths = true;
+        }
+
+        @Override
+        public void run() {
+
+            TFile fileTempImage;
+            TFile destFile;
+            try {
+
+                if (card == null) {
+                    synchronized (sync) {
+                        update(cardIndex + 1, count);
+                    }
+                    return;
+                }
+
+                // gen temp file (download to images folder)
+                String tempPath = getImagesDir() + File.separator + "downloading" + File.separator;
+                if (useSpecifiedPaths) {
+                    fileTempImage = new TFile(tempPath + actualFilename + "-" + card.hashCode() + ".jpg");
+                } else {
+                    fileTempImage = new TFile(tempPath + CardImageUtils.prepareCardNameForFile(card.getName()) + "-" + card.hashCode() + ".jpg");
+                }
+                TFile parentFile = fileTempImage.getParentFile();
+                if (parentFile != null) {
+                    if (!parentFile.exists()) {
+                        parentFile.mkdirs();
+                    }
+                }
+
+                // gen dest file name
+                if (useSpecifiedPaths) {
+                    if (card.isToken()) {
+                        destFile = new TFile(CardImageUtils.buildImagePathToSet(card) + actualFilename + ".jpg");
+                    } else {
+                        destFile = new TFile(CardImageUtils.buildImagePathToTokens() + actualFilename + ".jpg");
+                    }
+                } else {
+                    destFile = new TFile(CardImageUtils.buildImagePathToCard(card));
+                }
+
+                // check zip access
+                TFile testArchive = destFile.getTopLevelArchive();
+                if (testArchive != null && testArchive.exists()) {
+                    try {
+                        testArchive.list();
+                    } catch (Exception e) {
+                        logger.error("Error reading archive, it's can be corrupted. Try to delete it: " + testArchive.toString());
+
+                        synchronized (sync) {
+                            update(cardIndex + 1, count);
+                        }
+                        return;
+                    }
+                }
+
+                // can download images from many alternative urls
+                List<String> downloadUrls;
+                if (this.urls != null) {
+                    downloadUrls = this.urls.getDownloadList();
+                } else {
+                    downloadUrls = new ArrayList<>();
+                }
+
+                boolean isDownloadOK = false;
+                URLConnection httpConn = null;
+                List<String> errorsList = new ArrayList<>();
+                for (String currentUrl : downloadUrls) {
+                    URL url = new URL(currentUrl);
+
+                    // on download cancel need to stop
+                    //if (DownloadPicturesService.getInstance().isNeedCancel()) {
+                    //    return;
+                    //}
+
+                    // download
+                    selectedSource.doPause(url.getPath());
+
+                    httpConn = url.openConnection(proxy);
+                    if (httpConn != null) {
+
+                        httpConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.4; en-US; rv:1.9.2.2) Gecko/20100316 Firefox/3.6.2");
+                        try {
+                            httpConn.connect();
+                        } catch (SocketException e) {
+                            incErrorCount();
+                            errorsList.add("Wrong image URL or java app is not allowed to use network. Check your firewall or proxy settings. Error: " + e.getMessage() + ". Image URL: " + url.toString());
+                            break;
+                        } catch (UnknownHostException e) {
+                            incErrorCount();
+                            errorsList.add("Unknown site. Check your DNS settings. Error: " + e.getMessage() + ". Image URL: " + url.toString());
+                            break;
+                        }
+                        int responseCode = ((HttpURLConnection) httpConn).getResponseCode();
+
+                        // check result
+                        if (responseCode != 200) {
+                            // show errors only on full fail (all urls were not work)
+                            errorsList.add("Image download for " + card.getName()
+                                    + (!card.getDownloadName().equals(card.getName()) ? " downloadname: " + card.getDownloadName() : "")
+                                    + " (" + card.getSet() + ") failed - responseCode: " + responseCode + " url: " + url.toString());
+
+                            if (logger.isDebugEnabled()) {
+                                // Shows the returned html from the request to the web server
+                                logger.debug("Returned HTML ERROR:\n" + convertStreamToString(((HttpURLConnection) httpConn).getErrorStream()));
+                            }
+
+                            // go to next try
+                            continue;
+                        } else {
+                            // all fine
+                            isDownloadOK = true;
+                            break;
+                        }
+                    }
+                }
+
+                // can save result
+                if (isDownloadOK && httpConn != null) {
+                    // save data to temp
+                    try (InputStream in = new BufferedInputStream(httpConn.getInputStream());
+                         OutputStream tfileout = new TFileOutputStream(fileTempImage);
+                         OutputStream out = new BufferedOutputStream(tfileout)) {
+                        byte[] buf = new byte[1024];
+                        int len;
+                        while ((len = in.read(buf)) != -1) {
+                            // user cancelled
+                        	// ...
+                        	//
+                            out.write(buf, 0, len);
+                        }
+                    }
+                    // TODO: add two faces card correction? (WTF)
+                    // SAVE final data
+                    if (fileTempImage.exists()) {
+                        if (!destFile.getParentFile().exists()) {
+                            destFile.getParentFile().mkdirs();
+                        }
+                        new TFile(fileTempImage).cp_rp(destFile);
+                        try {
+                            TFile.rm(fileTempImage);
+                        } catch (Exception e) {
+                            logger.error("Can't delete temp file: " + e.getMessage(), e);
+                        }
+
+                    }
+                } else {
+                    // download errors
+                    for (String err : errorsList) {
+                        logger.warn(err);
+                    }
+                }
+
+            } catch (AccessDeniedException e) {
+                incErrorCount();
+                logger.error("Can't access to files: " + card.getName() + "(" + card.getSet() + "). Try rebooting your system to remove the file lock.");
+            } catch (Exception e) {
+                incErrorCount();
+                logger.error("Unknown error: " + e.getMessage(), e);
+            } finally {
+            }
+
+            synchronized (sync) {
+                update(cardIndex + 1, count);
+            }
+        }
     }
 
     private final class DownloadTask implements Runnable {
@@ -713,6 +1117,198 @@ public class DownloadPicturesService extends DefaultBoundedRangeModel implements
             this.count = count;
             this.actualFilename = actualFilename;
             useSpecifiedPaths = true;
+        }
+
+        public void runManually() {
+
+            TFile fileTempImage;
+            TFile destFile;
+            try {
+
+                if (card == null) {
+                    synchronized (sync) {
+                        update(cardIndex + 1, count);
+                    }
+                    return;
+                }
+
+                // gen temp file (download to images folder)
+                String tempPath = getImagesDir() + File.separator + "downloading" + File.separator;
+                if (useSpecifiedPaths) {
+                    fileTempImage = new TFile(tempPath + actualFilename + "-" + card.hashCode() + ".jpg");
+                } else {
+                    fileTempImage = new TFile(tempPath + CardImageUtils.prepareCardNameForFile(card.getName()) + "-" + card.hashCode() + ".jpg");
+                }
+                TFile parentFile = fileTempImage.getParentFile();
+                if (parentFile != null) {
+                    if (!parentFile.exists()) {
+                        parentFile.mkdirs();
+                    }
+                }
+
+                // gen dest file name
+                if (useSpecifiedPaths) {
+                    if (card.isToken()) {
+                        destFile = new TFile(CardImageUtils.buildImagePathToSet(card) + actualFilename + ".jpg");
+                    } else {
+                        destFile = new TFile(CardImageUtils.buildImagePathToTokens() + actualFilename + ".jpg");
+                    }
+                } else {
+                    destFile = new TFile(CardImageUtils.buildImagePathToCard(card));
+                }
+
+                // FILE already exists (in zip or in dir)
+                // don't use, images can be re-downloaded
+                /*
+                if (destFile.exists()) {
+                    synchronized (sync) {
+                        update(cardIndex + 1, count);
+                    }
+                    return;
+                }
+                */
+
+                // check zip access
+                TFile testArchive = destFile.getTopLevelArchive();
+                if (testArchive != null && testArchive.exists()) {
+                    try {
+                        testArchive.list();
+                    } catch (Exception e) {
+                        logger.error("Error reading archive, it's can be corrupted. Try to delete it: " + testArchive.toString());
+
+                        synchronized (sync) {
+                            update(cardIndex + 1, count);
+                        }
+                        return;
+                    }
+                }
+
+                // can download images from many alternative urls
+                List<String> downloadUrls;
+                if (this.urls != null) {
+                    downloadUrls = this.urls.getDownloadList();
+                } else {
+                    downloadUrls = new ArrayList<>();
+                }
+
+                boolean isDownloadOK = false;
+                URLConnection httpConn = null;
+                List<String> errorsList = new ArrayList<>();
+                for (String currentUrl : downloadUrls) {
+                    URL url = new URL(currentUrl);
+
+                    // on download cancel need to stop
+                    if (DownloadPicturesService.getInstance().isNeedCancel()) {
+                        return;
+                    }
+
+                    // download
+                    selectedSource.doPause(url.getPath());
+
+                    httpConn = url.openConnection(proxy);
+                    if (httpConn != null) {
+
+                        httpConn.setRequestProperty("User-Agent", "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.4; en-US; rv:1.9.2.2) Gecko/20100316 Firefox/3.6.2");
+                        try {
+                            httpConn.connect();
+                        } catch (SocketException e) {
+                            incErrorCount();
+                            errorsList.add("Wrong image URL or java app is not allowed to use network. Check your firewall or proxy settings. Error: " + e.getMessage() + ". Image URL: " + url.toString());
+                            break;
+                        } catch (UnknownHostException e) {
+                            incErrorCount();
+                            errorsList.add("Unknown site. Check your DNS settings. Error: " + e.getMessage() + ". Image URL: " + url.toString());
+                            break;
+                        }
+                        int responseCode = ((HttpURLConnection) httpConn).getResponseCode();
+
+                        // check result
+                        if (responseCode != 200) {
+                            // show errors only on full fail (all urls were not work)
+                            errorsList.add("Image download for " + card.getName()
+                                    + (!card.getDownloadName().equals(card.getName()) ? " downloadname: " + card.getDownloadName() : "")
+                                    + " (" + card.getSet() + ") failed - responseCode: " + responseCode + " url: " + url.toString());
+
+                            if (logger.isDebugEnabled()) {
+                                // Shows the returned html from the request to the web server
+                                logger.debug("Returned HTML ERROR:\n" + convertStreamToString(((HttpURLConnection) httpConn).getErrorStream()));
+                            }
+
+                            // go to next try
+                            continue;
+                        } else {
+                            // all fine
+                            isDownloadOK = true;
+                            break;
+                        }
+                    }
+                }
+
+                // can save result
+                if (isDownloadOK && httpConn != null) {
+                    // save data to temp
+                    try (InputStream in = new BufferedInputStream(httpConn.getInputStream());
+                         OutputStream tfileout = new TFileOutputStream(fileTempImage);
+                         OutputStream out = new BufferedOutputStream(tfileout)) {
+                        byte[] buf = new byte[1024];
+                        int len;
+                        while ((len = in.read(buf)) != -1) {
+                            // user cancelled
+                            if (DownloadPicturesService.getInstance().isNeedCancel()) {
+                                // stop download, save current state and exit
+                                TFile archive = destFile.getTopLevelArchive();
+                                ///* not need to unmout/close - it's auto action
+                                if (archive != null && archive.exists()) {
+                                    logger.info("User canceled download. Closing archive file: " + destFile.toString());
+                                    try {
+                                        TVFS.umount(archive);
+                                    } catch (Exception e) {
+                                        logger.error("Can't close archive file: " + e.getMessage(), e);
+                                    }
+                                }
+                                try {
+                                    TFile.rm(fileTempImage);
+                                } catch (Exception e) {
+                                    logger.error("Can't delete temp file: " + e.getMessage(), e);
+                                }
+                                return;
+                            }
+                            out.write(buf, 0, len);
+                        }
+                    }
+                    // TODO: add two faces card correction? (WTF)
+                    // SAVE final data
+                    if (fileTempImage.exists()) {
+                        if (!destFile.getParentFile().exists()) {
+                            destFile.getParentFile().mkdirs();
+                        }
+                        new TFile(fileTempImage).cp_rp(destFile);
+                        try {
+                            TFile.rm(fileTempImage);
+                        } catch (Exception e) {
+                            logger.error("Can't delete temp file: " + e.getMessage(), e);
+                        }
+
+                    }
+                } else {
+                    // download errors
+                    for (String err : errorsList) {
+                        logger.warn(err);
+                    }
+                }
+
+            } catch (AccessDeniedException e) {
+                incErrorCount();
+                logger.error("Can't access to files: " + card.getName() + "(" + card.getSet() + "). Try rebooting your system to remove the file lock.");
+            } catch (Exception e) {
+                incErrorCount();
+                logger.error("Unknown error: " + e.getMessage(), e);
+            } finally {
+            }
+
+            synchronized (sync) {
+                update(cardIndex + 1, count);
+            }
         }
 
         @Override
@@ -922,6 +1518,8 @@ public class DownloadPicturesService extends DefaultBoundedRangeModel implements
             // downloading
             float mb = ((needDownloadCount - lastCardIndex) * selectedSource.getAverageSize()) / 1024;
             uiDialog.getProgressBar().setString(String.format("%d of %d image downloads finished! Please wait! [%.1f Mb]",
+                    lastCardIndex, needDownloadCount, mb));
+            logger.error(String.format("%d of %d image downloads finished! Please wait! [%.1f Mb]",
                     lastCardIndex, needDownloadCount, mb));
         } else {
             // finished
